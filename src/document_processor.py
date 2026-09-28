@@ -41,3 +41,32 @@ def split_documents(docs: List[Document],
     chunks = text_splitter.split_documents(docs)
     return chunks
 
+def get_embedding_model(provider: str = "google"):
+    if provider == "google":
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found")
+        return GoogleGenerativeAIEmbeddings(
+            model="gemini-embedding-001",
+            google_api_key=api_key
+        )
+    elif provider == "local":
+        return HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
+    else:
+        raise ValueError(f"Unsupported embedding provider: {provider}")
+
+def store_in_vector_db(chunks: List[Document],
+                       persist_directory: str = "./chroma_db",
+                       collection_name: str = "knowledge_base",
+                       embedding_provider: str = "google") -> Chroma:
+    embeddings = get_embedding_model(provider = embedding_provider)
+    vector_db = Chroma.from_documents(
+        documents = chunks,
+        embedding = embeddings,
+        collection_name = collection_name,
+        persist_directory = persist_directory
+        )
+    return vector_db
+    
+
+                       
