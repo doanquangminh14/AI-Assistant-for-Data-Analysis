@@ -13,48 +13,57 @@ from src.rag_tool import get_retriever
 
 load_dotenv()
 
-class GradeResult(BaseModel):
+class RAGResponse(BaseModel):
     is_greeting: bool = Field(
         default=False,
         description="True nếu câu hỏi chỉ là chào hỏi, cảm ơn, tán gẫu thông thường."
     )
     status: Literal["DU_DU_LIEU", "KHONG_DU_DU_LIEU"] = Field(
-        description="'DU_DU_LIEU' nếu tài liệu có chứa thông tin để trả lời; 'KHONG_DU_DU_LIEU' nếu tài liệu hoàn toàn không liên quan hoặc thiếu thông tin quan trọng."
+        description="'DU_DU_LIEU' nếu tài liệu có đủ thông tin để trả lời; 'KHONG_DU_DU_LIEU' nếu tài liệu thiếu hoặc không liên quan."
     )
     reason: str = Field(
         description="Lý do ngắn gọn 1 câu tại sao đủ hoặc thiếu dữ liệu."
     )
-EVALUATOR_PROMPT = """Bạn là chuyên gia kiểm định dữ liệu.
-Nhiệm vụ: Đọc câu hỏi và các đoạn tài liệu dưới đây, chấm điểm xem tài liệu có ĐỦ thông tin để trả lời câu hỏi không:
-- Nếu chỉ là câu chào hỏi, tán gẫu: Đặt is_greeting = True, status = "DU_DU_LIEU".
-- Nếu tài liệu CÓ ĐỦ thông tin trả lời: Đặt status = "DU_DU_LIEU".
-- Nếu tài liệu KHÔNG liên quan hoặc THIẾU thông tin: Đặt status = "KHONG_DU_DU_LIEU".
-[Tài liệu]:
+    answer: str = Field(
+        description="Nội dung câu trả lời tự nhiên, thẳng thắn theo persona dựa vào tài liệu (nếu DU_DU_LIEU), hoặc lời chào thân mật (nếu is_greeting), hoặc giải thích rõ là tài liệu chưa có thông tin này (nếu KHONG_DU_DU_LIEU)."
+    )
+    sources: List[str] = Field(
+        default=[],
+        description="Danh sách các file nguồn đã sử dụng để trả lời."
+    )
+
+
+SYSTEM_PROMPT = """Bạn là một người bạn thân thiết, cực kỳ am hiểu và có kiến thức sâu rộng về Machine Learning và Phân tích dữ liệu.
+Phong cách giao tiếp:
+- Tự nhiên, thẳng thắn, không màu mè sáo rỗng, giải thích dễ hiểu.
+Nhiệm vụ của bạn trong 1 lần xử lý:
+1. Nếu câu hỏi là chào hỏi, cảm ơn, tán gẫu: Đặt is_greeting = True, status = "DU_DU_LIEU", và viết câu trả lời thân thiện vào `answer`.
+2. Nếu là câu hỏi kiến thức:
+   - Đọc kỹ phần [Tài liệu nội bộ] được cung cấp dưới đây.
+   - Nếu tài liệu CÓ ĐỦ thông tin: Đặt status = "DU_DU_LIEU", viết câu trả lời chi tiết vào `answer`, kèm danh sách `sources`.
+   - Nếu tài liệu KHÔNG ĐỦ hoặc KHÔNG LIÊN QUAN: Đặt status = "KHONG_DU_DU_LIEU", nói rõ trong `answer` rằng tài liệu nội bộ chưa có thông tin này. TUYỆT ĐỐI không tự ý bịa đặt kiến thức ngoài tài liệu.
+[Tài liệu nội bộ]:
 ---------------------
 {context}
 ---------------------
 """
 
-
-SYSTEM_PROMPT = """
-Bạn là một người bạn thân thiết, cực kỳ am hiểu và có kiến thức sâu rộng về Machine Learning và Phân tích dữ liệu.
-Phong cách giao tiếp:
-- Tự nhiên, thẳng thắn, đi thẳng vào trọng tâm vấn đề.
-- Khi người dùng hỏi kiến thức chuyên môn, hãy gọi công cụ `tra_cuu_tai_lieu` để lấy thông tin chính xác từ bài học.
-- Với các câu hỏi chào hỏi, giao tiếp thông thường, hãy trả lời tự nhiên mà KHÔNG cần gọi công cụ.
-- Chỉ dùng thông tin trong tài liệu đã tra cứu để trả lời câu hỏi chuyên môn, nếu tài liệu không có hãy nói rõ.
-"""
-
 retriever = get_retriever(k=4)
 
-def get_agent_llm(temperature=0.3):
+def get_rag_chain():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        temperature= temperature,
+        model="gemini-2.0-flash",
+        temperature= 0.2,
         google_api_key=os.getenv("GEMINI_API_KEY")
     )
-    return llm.bind_tools([tra_cuu_tai_lieu])
-
+    structured_llm = llm.with_structured_output(RAGResponse)
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", SYSTEM_PROMPT),
+        ("human", "Câu hỏi: {question}")
+    ])
+    return prompt | structured_llm
+    
+rag_chain = get_rag_chain()
 
 
 def extract_text(content) -> str:
@@ -67,75 +76,46 @@ def extract_text(content) -> str:
     return str(content)
 
 
-
-def evaluate_retrieval(question: str, docs: List[Document]) -> GradeResult:
-    if not docs:
-        return GradeResult(is_greeting=False, status="KHONG_DU_DU_LIEU", reason="Không tìm thấy tài liệu.")
-    context_text = "\n\n".join([f"[Đoạn #{i+1}]: {doc.page_content.strip()}" for i, doc in enumerate(docs)])
-    
-    grader_llm = get_agent_llm(temperature=0.0).with_structured_output(GradeResult)
-    evaluator_chain = (
-        ChatPromptTemplate.from_messages([
-            ("system", EVALUATOR_PROMPT),
-            ("human", "Câu hỏi: {question}")
-        ])
-        | grader_llm
-    )
-    return evaluator_chain.invoke({"question": question, "context": context_text})
-
-
-
-
-def generate_answer(question: str, docs: List[Document]) -> str:
-    """Hàm sinh câu trả lời hoàn chỉnh dựa trên các đoạn tài liệu đã kiểm định"""
+def chat_with_agent(question: str) -> RAGResponse:
+    docs: List[Document] = retriever.invoke(question)
     context_text = "\n\n".join([
-        f"[Nguồn: {os.path.basename(doc.metadata.get('source', 'Tài liệu'))}]:\n{doc.page_content.strip()}" 
-        for doc in docs
+        f"[Đoạn #{i+1} - Nguồn: {os.path.basename(doc.metadata.get('source', 'Tài liệu'))}]:\n{doc.page_content.strip()}" 
+        for i, doc in enumerate(docs)
     ])
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("human", "{question}")
-    ])
-    
-    rag_chain = prompt | get_agent_llm()
-    response = rag_chain.invoke({"context": context_text, "question": question})
-    return extract_text(response.content)
+    response: RAGResponse = rag_chain.invoke({
+        "context": context_text,
+        "question": question
+    })
+    return response
 
-
-
-def chat_with_agent(question: str, messages_history: list = None) -> str:
-    docs = retriever.invoke(question)
-
-    grade = evaluate_retrieval(question, docs)
-    print(f"[Đánh giá: {grade.status} - Lý do: {grade.reason}] ")
-
-    if grade.is_greeting:
-        llm = get_agent_llm(temperature= 0.7)
-        res = llm.invoke(f"Trả lời tự nhiên câu chào hỏi sau: {question}")
-        return extract_text(res.content)
-    if grade.status == "DU_DU_LIEU":
-        return generate_answer(question,docs)
-    else:
-        return f"Xin lỗi. Tôi chưa có đủ thông tin về '{question}'."
     
 
 if __name__ == "__main__":
     if sys.platform == "win32":
-       sys.stdout.reconfigure(encoding="utf-8")
-       sys.stderr.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
        
-    print("=== CHATBOT AI ASSISTANT (Gõ 'exit' để thoát) ===")
-    history = [SystemMessage(content=SYSTEM_PROMPT)]
-    print("Chat with your AI Assistant (type 'exit' to quit)")
+    print("=== CHATBOT AI ASSISTANT - GỘP KIỂM ĐỊNH & TRẢ LỜI ===")
+    print("Chat with your AI Assistant (type 'exit' to quit)\n")
+    
     while True:
         user_input = input("You: ").strip()
         if user_input.lower() == "exit":
             print("Chatbot exited.")
             break
-        answer = chat_with_agent(user_input)
-        print(f"Bot: {answer}")
-                
+        if not user_input:
+            continue
+            
+        res = chat_with_agent(user_input)
+        if not res.is_greeting:
+            print(f" [Đánh giá: {res.status} | Lý do: {res.reason}]")
+            
+        print(f"Bot: {res.answer}")
+        
+        if res.sources:
+            print(f" Nguồn: {', '.join(res.sources)}")
+        print("-" * 60)
+
 
     
     
