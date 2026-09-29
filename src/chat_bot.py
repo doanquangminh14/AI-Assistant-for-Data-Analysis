@@ -25,6 +25,15 @@ def get_agent_llm():
     )
     return llm.bind_tools([tra_cuu_tai_lieu])
 
+def extract_text(content) -> str:
+    """Hàm phụ trợ trích xuất văn bản thuần từ response của Gemini"""
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        texts = [item.get("text", "") for item in content if isinstance(item, dict) and "text" in item]
+        return "\n".join(texts)
+    return str(content)
+
 def chat_with_agent(question: str, messages_history: list = None) -> str:
     llm_with_tools = get_agent_llm()
     if messages_history is None:
@@ -48,9 +57,10 @@ def chat_with_agent(question: str, messages_history: list = None) -> str:
 
         final_response = llm_with_tools.invoke(messages_history)
         messages_history.append(final_response)
-        return final_response.content
+        return extract_text(final_response.content)
     else:
-        return ai_msg.content
+        return extract_text(ai_msg.content)
+
 
 
 if __name__ == "__main__":
