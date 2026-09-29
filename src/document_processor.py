@@ -51,11 +51,7 @@ def get_embedding_model(provider: str = "google"):
             google_api_key=api_key
         )
     elif provider == "local":
-<<<<<<< HEAD
-        return HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
-=======
         return HuggingFaceEmbeddings(model_name = "paraphrase-multilingual-MiniLM-L12-v2")
->>>>>>> db3fdd4 (update document processor and test, ignore chroma_db)
     else:
         raise ValueError(f"Unsupported embedding provider: {provider}")
 

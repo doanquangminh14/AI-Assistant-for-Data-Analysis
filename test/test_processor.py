@@ -64,7 +64,7 @@ def run_test_on_data():
                 print("Exit!")
                 break
 
-            results = vector_db.similarity_search(query, k=4)
+            results = vector_db.similarity_search(query, k=5)
             if results:
                 print("\n Result of query :\n")
                 for i, doc in enumerate(results, start=1):
