@@ -10,6 +10,7 @@ from typing import List, Literal
 from pydantic import BaseModel, Field
 from langchain_core.documents import Document
 from src.rag_tool import get_retriever
+from src.rag_tool import search_with_threshold
 
 load_dotenv()
 
@@ -76,48 +77,62 @@ def extract_text(content) -> str:
     return str(content)
 
 
+
+
 def chat_with_agent(question: str) -> RAGResponse:
-    docs: List[Document] = retriever.invoke(question)
+    # 1. Tìm kiếm và lọc theo ngưỡng tương đồng (loại bỏ câu hỏi không liên quan)
+    docs, all_scores = search_with_threshold(question, k=4, distance_threshold=20.0)
+
+    # Nếu không có đoạn nào đạt ngưỡng điểm -> Báo ngay là không có dữ liệu
     if not docs:
         return RAGResponse(
             is_greeting=False,
             status="KHONG_DU_DU_LIEU",
-            reason="Không tìm thấy tài liệu liên quan.",
-            answer="Xin lỗi, tôi chưa có thông tin này.",
+            reason="Không có đoạn tài liệu nào trong kho đạt ngưỡng liên quan với câu hỏi.",
+            answer=f"Tài liệu nội bộ hiện không có thông tin nào liên quan đến câu hỏi: '{question}'.",
             sources=[]
         )
+
+    # 2. Tạo context từ các đoạn ĐÃ ĐƯỢC LỌC CHUẨN
     context_text = "\n\n".join([
         f"[Đoạn #{i+1} - Nguồn: {os.path.basename(doc.metadata.get('source', 'Tài liệu'))}]:\n{doc.page_content.strip()}" 
         for i, doc in enumerate(docs)
     ])
 
+    # 3. Thử gọi LLM
     try:
         response: RAGResponse = rag_chain.invoke({
             "context": context_text,
             "question": question
         })
+        return response
+
     except Exception as e:
-        print(f"\n [Lưu ý: Không thể kết nối tới LLM ({e.__class__.__name__}). Tự động chuyển sang chế độ trích xuất Vector trực tiếp từ máy cục bộ]")
-        direct_snippets = []
-        sources = []
+        # 4. CHẾ ĐỘ OFFLINE VECTOR (Trình bày đẹp mắt và chuẩn xác)
+        sources = list(set([os.path.basename(d.metadata.get("source", "Tài liệu")) for d in docs]))
+        
+        snippets = []
         for i, doc in enumerate(docs, start=1):
             src_name = os.path.basename(doc.metadata.get("source", "Tài liệu"))
-            if src_name not in sources:
-                sources.append(src_name)
-            direct_snippets.append(f" [Trích đoạn #{i} - Nguồn: {src_name}]:\n{doc.page_content.strip()}")
+            snippets.append(
+                f"📄 [Trích đoạn #{i} | Nguồn: {src_name}]\n"
+                f"{doc.page_content.strip()}"
+            )
+
         fallback_answer = (
-            "Dưới đây là các đoạn thông tin trích xuất trực tiếp từ kho tài liệu nội bộ trên máy của bạn:\n\n"
-            + "\n\n" + ("-" * 40) + "\n\n"
-            + "\n\n".join(direct_snippets)
+            f"🔍 Tìm thấy {len(docs)} đoạn tài liệu liên quan trực tiếp từ máy của bạn:\n\n"
+            + "\n\n" + ("─" * 45) + "\n\n"
+            + "\n\n".join(snippets)
         )
+
         return RAGResponse(
             is_greeting=False,
             status="DU_DU_LIEU",
-            reason="Trích xuất trực tiếp từ Vector DB cục bộ (Offline Mode)",
+            reason=f"Trích xuất thành công {len(docs)} đoạn đạt ngưỡng tương đồng từ Vector DB",
             answer=fallback_answer,
             sources=sources
         )
-        
+
 
     
 

@@ -45,4 +45,26 @@ def tra_cuu_tai_lieu(query: str) -> str:
     return RAG_CONTEXT_TEMPLATE.format(context=context_text)
 
 
+def search_with_threshold(query: str, k: int = 4, distance_threshold: float = 18.0):
+    """
+    Tìm kiếm tài liệu bằng khoảng cách Euclidean (càng nhỏ càng giống).
+    Khoảng cách < 18.0 là nội dung liên quan.
+    """
+    embeddings = get_embedding_model(provider="local")
+    vector_db = Chroma(
+        persist_directory="./chroma_db",
+        collection_name="knowledge_base",
+        embedding_function=embeddings
+    )
     
+    # Dùng similarity_search_with_score để không bị UserWarning
+    results_with_scores = vector_db.similarity_search_with_score(query, k=k)
+    
+    # Giữ lại các đoạn có khoảng cách nhỏ hơn ngưỡng (càng nhỏ càng khớp)
+    filtered_docs = [
+        doc for doc, score in results_with_scores 
+        if score <= distance_threshold
+    ]
+    
+    return filtered_docs, results_with_scores
+
