@@ -29,7 +29,11 @@ Quy tắc:
 """)
 
 @tool
-def tra_cuu_thong_tin_tu_documents(query: str) -> str:
+def tra_cuu_tai_lieu(query: str) -> str:
+    """Tra cứu các tài liệu học tập, kiến thức về Machine Learning, NLP, LLM, RAG và Phân tích dữ liệu.
+    CHỈ sử dụng công cụ này khi người dùng hỏi các câu hỏi kiến thức chuyên môn, lý thuyết hoặc bài học trong tài liệu.
+    Không gọi công cụ này cho các câu chào hỏi, giao tiếp thông thường.
+    """
     docs = retriever.invoke(query)
     if not docs:
         return "Not found relevant documents"
