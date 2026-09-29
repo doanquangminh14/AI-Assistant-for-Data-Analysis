@@ -6,7 +6,7 @@ from langchain_core.prompts import PromptTemplate
 from src.document_processor import get_embedding_model
 from langchain_chroma import Chroma
 
-def get_retriver(persist_directory: str = "./chroma_db",
+def get_retriever(persist_directory: str = "./chroma_db",
                  collection_name: str = "knowledge_base",
                  k: int = 4):
     embeddings = get_embedding_model(provider="local")
@@ -15,7 +15,7 @@ def get_retriver(persist_directory: str = "./chroma_db",
                        embedding_function=embeddings)
     return vector_db.as_retriever(search_kwargs={"k": k})
 
-retriever = get_retriver(k = 4)
+retriever = get_retriever(k = 4)
 
 RAG_CONTEXT_TEMPLATE = PromptTemplate.from_template("""
 Dưới đây là các đoạn thông tin trích xuất từ tài liệu nội bộ:
