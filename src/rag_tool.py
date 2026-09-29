@@ -28,21 +28,6 @@ Quy tắc:
 
 """)
 
-@tool
-def tra_cuu_tai_lieu(query: str) -> str:
-    """Tra cứu các tài liệu học tập, kiến thức về Machine Learning, NLP, LLM, RAG và Phân tích dữ liệu.
-    CHỈ sử dụng công cụ này khi người dùng hỏi các câu hỏi kiến thức chuyên môn, lý thuyết hoặc bài học trong tài liệu.
-    Không gọi công cụ này cho các câu chào hỏi, giao tiếp thông thường.
-    """
-    docs = retriever.invoke(query)
-    if not docs:
-        return "Not found relevant documents"
-    context_text = "\n\n".join(
-        [f"[Trích đoạn #{i+1} - Nguồn: {os.path.basename(doc.metadata.get('source', 'Tài liệu'))}]:\n{doc.page_content.strip()}" 
-         for i, doc in enumerate(docs)]
-    )
-
-    return RAG_CONTEXT_TEMPLATE.format(context=context_text)
 
 
 def search_with_threshold(query: str, k: int = 4, distance_threshold: float = 18.0):
@@ -57,10 +42,7 @@ def search_with_threshold(query: str, k: int = 4, distance_threshold: float = 18
         embedding_function=embeddings
     )
     
-    # Dùng similarity_search_with_score để không bị UserWarning
     results_with_scores = vector_db.similarity_search_with_score(query, k=k)
-    
-    # Giữ lại các đoạn có khoảng cách nhỏ hơn ngưỡng (càng nhỏ càng khớp)
     filtered_docs = [
         doc for doc, score in results_with_scores 
         if score <= distance_threshold
