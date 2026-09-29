@@ -52,7 +52,7 @@ retriever = get_retriever(k=4)
 
 def get_rag_chain():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         temperature= 0.2,
         google_api_key=os.getenv("GEMINI_API_KEY")
     )
@@ -78,15 +78,46 @@ def extract_text(content) -> str:
 
 def chat_with_agent(question: str) -> RAGResponse:
     docs: List[Document] = retriever.invoke(question)
+    if not docs:
+        return RAGResponse(
+            is_greeting=False,
+            status="KHONG_DU_DU_LIEU",
+            reason="Không tìm thấy tài liệu liên quan.",
+            answer="Xin lỗi, tôi chưa có thông tin này.",
+            sources=[]
+        )
     context_text = "\n\n".join([
         f"[Đoạn #{i+1} - Nguồn: {os.path.basename(doc.metadata.get('source', 'Tài liệu'))}]:\n{doc.page_content.strip()}" 
         for i, doc in enumerate(docs)
     ])
-    response: RAGResponse = rag_chain.invoke({
-        "context": context_text,
-        "question": question
-    })
-    return response
+
+    try:
+        response: RAGResponse = rag_chain.invoke({
+            "context": context_text,
+            "question": question
+        })
+    except Exception as e:
+        print(f"\n [Lưu ý: Không thể kết nối tới LLM ({e.__class__.__name__}). Tự động chuyển sang chế độ trích xuất Vector trực tiếp từ máy cục bộ]")
+        direct_snippets = []
+        sources = []
+        for i, doc in enumerate(docs, start=1):
+            src_name = os.path.basename(doc.metadata.get("source", "Tài liệu"))
+            if src_name not in sources:
+                sources.append(src_name)
+            direct_snippets.append(f" [Trích đoạn #{i} - Nguồn: {src_name}]:\n{doc.page_content.strip()}")
+        fallback_answer = (
+            "Dưới đây là các đoạn thông tin trích xuất trực tiếp từ kho tài liệu nội bộ trên máy của bạn:\n\n"
+            + "\n\n" + ("-" * 40) + "\n\n"
+            + "\n\n".join(direct_snippets)
+        )
+        return RAGResponse(
+            is_greeting=False,
+            status="DU_DU_LIEU",
+            reason="Trích xuất trực tiếp từ Vector DB cục bộ (Offline Mode)",
+            answer=fallback_answer,
+            sources=sources
+        )
+        
 
     
 
